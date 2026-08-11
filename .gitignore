@@ -1,0 +1,8 @@
+cat > .gitignore <<'EOF'
+build/
+storage/*
+!storage/.gitkeep
+database/*.db
+sync_folder/*
+!sync_folder/.gitkeep
+EOF
