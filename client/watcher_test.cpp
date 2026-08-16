@@ -12,7 +12,10 @@ int main() {
         auto changes = detect_changes(folder,known_hashes);
 
         for (const auto& change : changes) {
-            std::string type_str = (change.type == ChangeType::New) ? "NEW" : "MODIFIED";
+            std::string type_str;
+            if (change.type == ChangeType::New) type_str = "NEW";
+            else if (change.type == ChangeType::Modified) type_str = "MODIFIED";
+            else type_str = "DELETED";
             std::cout << type_str << ": " << change.filename << "\n";
         }
 

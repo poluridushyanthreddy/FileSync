@@ -12,6 +12,8 @@ class Database {
     int upsert_file(const::std::string& filename,const std::string& hash,
                 size_t size,long modified_at);
 
+    void delete_file(const std::string& filename);
+    
     private:
     sqlite3* db;
 };

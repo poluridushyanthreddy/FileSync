@@ -23,9 +23,50 @@ void handle_client(tcp::socket socket,Database& db) {
         std::string header_line;
         std::getline(is, header_line);
 
+        if (header_line.empty()) {
+            std::cerr << "Received empty header line — client likely disconnected early.\n";
+            return;
+        }
+
         std::cout << "Raw header line: " << header_line << "\n";
 
-        json header = json::parse(header_line);
+        json header;
+        try {
+            header = json::parse(header_line);
+        } catch (json::parse_error& e) {
+            std::cerr << "Malformed JSON header: " << e.what() << "\n";
+            return;
+        }
+
+        if (!header.contains("type") || !header["type"].is_string()) {
+            std::cerr << "Header missing valid 'type' field, dropping connection.\n";
+            return;
+        }
+
+        std::string type=header["type"];
+
+        if (type == "FILE_DELETE") {
+            std::string filename = header["filename"];
+            std::cout << "Delete requested for: " << filename << "\n";
+
+            db.delete_file(filename);
+
+            std::string filepath = "../storage/" + filename;
+            if (std::filesystem::exists(filepath)) {
+                std::filesystem::remove(filepath);
+                std::cout << "Removed file: " << filepath << "\n";
+            } else {
+                std::cout << "File already absent: " << filepath << "\n";
+            }
+
+            json ack;
+            ack["type"] = "ACK";
+            ack["status"] = "ok";
+            std::string ack_str = ack.dump() + "\n";
+            boost::asio::write(socket, boost::asio::buffer(ack_str));
+            return;
+        }
+
         std::string filename = header["filename"];
         size_t file_size = header["size"];
         std::string file_hash=header["hash"];

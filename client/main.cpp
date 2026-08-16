@@ -59,7 +59,36 @@ void upload_file(const std::string& folder_path, const std::string& filename) {
     }
 }
 
-//argc is is the count of no of arguments and argv[] is an array of cstrings
+void send_deleted(const std::string& filename){
+    try {
+        boost::asio::io_context io_context;
+        tcp::resolver resolver(io_context);
+        auto endpoints = resolver.resolve("127.0.0.1", "9000");
+
+        tcp::socket socket(io_context);
+        boost::asio::connect(socket, endpoints);
+
+        json header;
+        header["type"] = "FILE_DELETE";
+        header["filename"] = filename;
+
+        std::string header_str = header.dump() + "\n";
+        boost::asio::write(socket, boost::asio::buffer(header_str));
+
+        boost::asio::streambuf response_buf;
+        boost::asio::read_until(socket, response_buf, "\n");
+
+        std::istream is(&response_buf);
+        std::string ack_line;
+        std::getline(is, ack_line);
+
+        std::cout << "Deleted " << filename << " -> " << ack_line << "\n";
+
+    } catch (std::exception& e) {
+        std::cerr << "Exception deleting " << filename << ": " << e.what() << "\n";
+    }
+}
+
 int main()
 {
     std::string folder = "../sync_folder";
@@ -71,9 +100,14 @@ int main()
         auto changes = detect_changes(folder, known_hashes);
 
         for (const auto& change : changes) {
-            std::cout << (change.type == ChangeType::New ? "NEW" : "MODIFIED")
-                      << ": " << change.filename << " -> uploading...\n";
-            upload_file(folder, change.filename);
+            if (change.type == ChangeType::Deleted) {
+                std::cout << "DELETED: " << change.filename << " -> notifying server...\n";
+                send_deleted(change.filename);
+            } else {
+                std::string type_str = (change.type == ChangeType::New) ? "NEW" : "MODIFIED";
+                std::cout << type_str << ": " << change.filename << " -> uploading...\n";
+                upload_file(folder, change.filename);
+            }
         }
 
         std::this_thread::sleep_for(std::chrono::seconds(5));

@@ -67,3 +67,12 @@ int Database::upsert_file(const std::string& filename, const std::string& hash,
         return new_version;
     }
 }
+
+void Database::delete_file(const std::string& filename) {
+    const char* delete_sql = "DELETE FROM files WHERE filename = ?;";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, delete_sql, -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, filename.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+}

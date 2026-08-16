@@ -6,7 +6,7 @@
 std::vector<std::string> list_files(const std::string & folder_path);
 std::vector<char> read_file_bytes(const std::string& file_path);
 
-enum class ChangeType { New, Modified, Unchanged };
+enum class ChangeType { New, Modified, Deleted };
 
 struct FileChange {
     std::string filename;
