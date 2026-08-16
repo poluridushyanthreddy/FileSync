@@ -12,8 +12,8 @@ find_package(SQLite3 REQUIRED)
 add_executable(server server/main.cpp server/database.cpp)
 target_link_libraries(server PRIVATE Boost::boost OpenSSL::Crypto nlohmann_json::nlohmann_json SQLite::SQLite3)
 
-add_executable(client client/main.cpp)
+add_executable(client client/main.cpp client/hashing.cpp client/watcher.cpp)
 target_link_libraries(client PRIVATE Boost::boost OpenSSL::Crypto nlohmann_json::nlohmann_json)
 
-add_executable(watcher_test client/watcher_test.cpp client/watcher.cpp)
-target_link_libraries(watcher_test PRIVATE Boost::boost)
+add_executable(watcher_test client/watcher_test.cpp client/watcher.cpp client/hashing.cpp)
+target_link_libraries(watcher_test PRIVATE  OpenSSL::Crypto)
