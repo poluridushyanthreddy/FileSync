@@ -15,6 +15,8 @@ Database::~Database() {
 
 int Database::upsert_file(const std::string& filename, const std::string& hash,
                             size_t size, long modified_at) {
+    std::lock_guard<std::mutex> lock(db_mutex);
+
     // Step 1: check if a row with this filename already exists
     const char* select_sql = "SELECT hash, version FROM files WHERE filename = ?;";
     sqlite3_stmt* stmt;
@@ -69,6 +71,8 @@ int Database::upsert_file(const std::string& filename, const std::string& hash,
 }
 
 void Database::delete_file(const std::string& filename) {
+    std::lock_guard<std::mutex> lock(db_mutex);
+    
     const char* delete_sql = "DELETE FROM files WHERE filename = ?;";
     sqlite3_stmt* stmt;
     sqlite3_prepare_v2(db, delete_sql, -1, &stmt, nullptr);

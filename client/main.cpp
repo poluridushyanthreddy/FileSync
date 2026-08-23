@@ -89,9 +89,9 @@ void send_deleted(const std::string& filename){
     }
 }
 
-int main()
+int main(int argc, char* argv[])
 {
-    std::string folder = "../sync_folder";
+    std::string folder = (argc>1)?argv[1]:"../sync_folder";
     std::map<std::string, std::string> known_hashes;
 
     std::cout << "Watching " << folder << " for changes...\n";

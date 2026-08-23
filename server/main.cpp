@@ -3,6 +3,7 @@
 #include <fstream>
 #include <nlohmann/json.hpp>
 #include <ctime>
+#include <thread>
 #include "database.hpp"
 
 using boost::asio::ip::tcp;
@@ -140,9 +141,11 @@ int main()
         acceptor.accept(socket);
 
         std::cout<<"Client Connected\n";
-        handle_client(std::move(socket),db);
+
+        std::thread client_thread(handle_client, std::move(socket), std::ref(db));
+        client_thread.detach();
         }
-    }
+        }
     catch(std::exception& e)
     {
         std::cerr<<"Exception: "<<e.what()<<"\n";

@@ -1,26 +1,23 @@
 # FileSync
 
-A Dropbox-style file synchronization tool built from scratch in C++17 — a hands-on systems programming project covering TCP networking, binary protocols, cryptographic hashing, and database persistence.
+A Dropbox-style file synchronization tool built from scratch in C++17 — covering TCP networking, binary protocols, cryptographic hashing, multithreading, and database persistence.
 
-A client watches a local folder for changes and automatically syncs new, modified, and deleted files to a server, which stores the files on disk and tracks their metadata (including version history) in SQLite.
-
-## Demo
-
-*(Coming soon — terminal recording / GIF walkthrough of the client watching a folder and syncing to the server in real time.)*
+A client watches a local folder for changes and automatically syncs new, modified, and deleted files to a server. The server concurrently handles multiple client connections, stores files on disk, and tracks metadata (including version history) in SQLite.
 
 ## Architecture
 
 ```
-Client                              Server
-------                              ------
-watches sync_folder/                listens on TCP port 9000
-detects file changes (polling)      receives {header + bytes}
-computes SHA-256 hash               saves file to storage/
-sends JSON header + raw bytes       upserts metadata into SQLite
-receives ACK                        sends back ACK
+Client(s)                               Server
+---------                               ------
+watches sync folder (polling)           listens on TCP port 9000
+detects file changes (new/mod/del)      spawns worker thread per client connection
+computes SHA-256 hash                   receives JSON header + raw bytes
+sends JSON header + raw bytes           saves file to storage/
+receives ACK                            upserts metadata into SQLite (mutex-protected)
+                                        sends back ACK
 ```
 
-**Wire protocol:** a single JSON header line, followed immediately by the raw file bytes (for uploads). No chunking or streaming yet — the whole file is loaded into memory and sent in one shot.
+**Wire protocol:** A single JSON header line, followed immediately by raw file bytes (for uploads).
 
 Example upload header:
 ```json
@@ -37,104 +34,93 @@ Server response:
 {"type": "ACK", "status": "ok", "version": 3}
 ```
 
-## What's implemented
+## Features
 
-- **TCP server** (Boost.Asio, synchronous) — accepts connections in a loop, parses the JSON header, reads the exact number of file bytes, and writes the file to `storage/`
-- **TCP client** (Boost.Asio, synchronous) — connects, sends a file with its computed hash, and reads back the server's ACK
-- **SHA-256 hashing** (OpenSSL) — every file is hashed before upload; the hash is used both for the wire protocol and for local change detection
-- **SQLite persistence** — file metadata (filename, hash, size, modified time, version) is stored in a `files` table. Uploading a file with an unchanged hash is a no-op; a changed hash bumps the row's `version`
-- **Folder watcher** (`std::filesystem`, polling every 5s) — tracks a local map of filename → last-known-hash to classify each file on every scan as new, modified, unchanged, or deleted
-- **Delete detection** — a file removed from the watched folder triggers a `FILE_DELETE` message; the server removes both the DB row and the stored copy
-- **Basic error handling** — malformed headers, dropped connections, and read/write failures are caught and logged; the server keeps running and accepting new connections rather than crashing
+- **Concurrent multi-client server** (`std::thread`, Boost.Asio) — accepts incoming connections and dispatches each client to a dedicated detached worker thread.
+- **Thread-safe SQLite persistence** (`std::mutex`) — file metadata (filename, hash, size, modified time, version) is synchronized safely across concurrent client operations. Uploading a file with an unchanged hash is a no-op; a changed hash increments the version.
+- **TCP client** (Boost.Asio) — connects, transmits file bytes or delete notifications, and processes server ACKs. Supports custom watch folders passed via CLI arguments.
+- **SHA-256 hashing** (OpenSSL) — every file is hashed before upload for wire protocol integrity and local change detection.
+- **Folder watcher** (`std::filesystem`, polling every 5s) — scans the local directory using a filename-to-hash map to detect new, modified, unchanged, or deleted files.
+- **Delete detection** — removing a file from the watched directory triggers a `FILE_DELETE` command; the server deletes both the stored file on disk and its database entry.
+- **Error handling** — handles malformed headers, dropped connections, and I/O failures gracefully without crashing the server.
 
-## What's explicitly out of scope (for now)
+## Tech Stack
 
-This is an MVP. The following are deliberately deferred to keep the initial build focused and shippable:
+| Purpose | Library / Tool |
+|---|---|
+| Language / Build | C++17, CMake |
+| Networking | Boost.Asio (synchronous TCP) |
+| Concurrency | `std::thread`, `std::mutex` |
+| Hashing | OpenSSL (SHA-256) |
+| Metadata Persistence | SQLite3 (C API, thread-safe) |
+| Message Serialization | nlohmann/json |
+| Folder Watching | `std::filesystem` (polling) |
 
-- **Multiple simultaneous clients** — the server currently handles one connection at a time
-- **Authentication** — no user accounts or tokens yet
-- **Conflict resolution** — no conflict-named copies or merge logic
-- **Chunked / delta / compressed / encrypted transfer** — files are sent whole, in the clear
-- **Rename detection** — a rename is currently treated as a delete + a new file
-- **Event-driven watching** — the watcher polls every 5 seconds rather than using `inotify`
-- **A dashboard or GUI** — everything is CLI/terminal only
-
-These are the natural next milestones, with multi-client support in particular expected to meaningfully strengthen the project (it's the point where the server needs real concurrency handling).
-
-## Tech stack
-
-| Purpose              | Library / Tool          |
-|-----------------------|-------------------------|
-| Language / build      | C++17, CMake            |
-| Networking             | Boost.Asio (synchronous TCP) |
-| Hashing                 | OpenSSL (SHA-256)       |
-| Metadata persistence    | SQLite3 (raw C API)     |
-| Message serialization   | nlohmann/json           |
-| Folder watching          | `std::filesystem` (polling) |
-
-## Project structure
+## Project Structure
 
 ```
 FileSync/
 ├── server/
-│   ├── main.cpp          # TCP accept loop, protocol dispatch (upload/delete)
-│   ├── database.hpp/.cpp # SQLite wrapper — upsert with version bumping, delete
+│   ├── main.cpp          # TCP accept loop & multi-threaded client dispatch
+│   ├── database.hpp/.cpp # Thread-safe SQLite wrapper (upsert, delete, versioning)
 │
 ├── client/
-│   ├── main.cpp           # watch loop, upload/delete dispatch
-│   ├── watcher.hpp/.cpp   # folder polling, change detection (new/modified/deleted)
-│   ├── hashing.hpp/.cpp   # SHA-256 via OpenSSL
+│   ├── main.cpp          # Watch loop, folder CLI argument & upload/delete dispatch
+│   ├── watcher.hpp/.cpp  # Folder polling & change detection (new/modified/deleted)
+│   ├── hashing.hpp/.cpp  # SHA-256 via OpenSSL
 │
-├── storage/                # server-side file storage (gitignored)
-├── database/                # sync.db lives here (gitignored)
-├── sync_folder/               # client-side watched folder (gitignored)
+├── storage/              # Server-side file storage (gitignored)
+├── database/             # sync.db lives here (gitignored)
+├── sync_folder/          # Client-side watched folder (gitignored)
 └── CMakeLists.txt
 ```
 
 ## Building
 
-Requires a C++17 compiler, CMake, and the following dev libraries: Boost, OpenSSL, SQLite3, and nlohmann-json.
+Requires a C++17 compiler, CMake, and the following development libraries: Boost, OpenSSL, SQLite3, and nlohmann-json.
 
-On Ubuntu/WSL:
+On Ubuntu / Debian:
 ```bash
 sudo apt install build-essential cmake libboost-all-dev libssl-dev libsqlite3-dev nlohmann-json3-dev
 ```
 
-Then build:
+Build:
 ```bash
 mkdir -p build && cd build
 cmake ..
 cmake --build .
 ```
 
-This produces two executables in `build/`: `server` and `client`.
+This produces the `server` and `client` binaries in `build/`.
 
-## Running it
+## Running
 
-First, set up the database (one-time):
+### 1. Initialize the Database
 ```bash
 mkdir -p database
-sqlite3 database/sync.db < schema.sql   # or run the CREATE TABLE statement directly
+sqlite3 database/sync.db "CREATE TABLE IF NOT EXISTS files (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT NOT NULL, hash TEXT NOT NULL, size INTEGER NOT NULL, modified_at INTEGER NOT NULL, version INTEGER NOT NULL DEFAULT 1);"
 ```
 
-Then, in one terminal, start the server:
+### 2. Start the Server
 ```bash
 cd build
 ./server
 ```
 
-In another terminal, start the client (it watches `../sync_folder` by default):
+### 3. Start Client(s)
+In a separate terminal, start a client (watches `../sync_folder` by default):
 ```bash
 cd build
 ./client
 ```
 
-Now drop, edit, or delete files in `sync_folder/` — the client will detect the change within 5 seconds and sync it to the server automatically. Synced files land in `storage/`, and their metadata (including version history) is queryable in `database/sync.db`:
+To run multiple concurrent clients watching different folders:
+```bash
+./client ../sync_folder2
+```
+
+Drop, edit, or delete files in the watched folders — changes are automatically detected and synced to the server. Synced files are saved to `storage/`, and metadata is tracked in `database/sync.db`:
 
 ```bash
 sqlite3 database/sync.db "SELECT * FROM files;"
 ```
-
-## Learning notes
-
-This project was built incrementally, stage by stage, with each piece (sockets, hashing, database, watcher) written by hand and tested in isolation before being wired together — starting with zero prior experience in Boost.Asio, SQLite's C API, or OpenSSL.

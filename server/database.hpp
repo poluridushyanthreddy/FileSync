@@ -1,6 +1,7 @@
 #pragma once
 #include <sqlite3.h>
 #include <string>
+#include <mutex>
 
 class Database {
     public:
@@ -16,4 +17,5 @@ class Database {
     
     private:
     sqlite3* db;
+    std::mutex db_mutex;
 };
