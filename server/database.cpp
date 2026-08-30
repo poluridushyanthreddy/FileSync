@@ -80,3 +80,19 @@ void Database::delete_file(const std::string& filename) {
     sqlite3_step(stmt);
     sqlite3_finalize(stmt);
 }
+
+int Database::get_current_version(const std::string& filename) {
+    std::lock_guard<std::mutex> lock(db_mutex);
+
+    const char* select_sql = "SELECT version FROM files WHERE filename = ?;";
+    sqlite3_stmt* stmt;
+    sqlite3_prepare_v2(db, select_sql, -1, &stmt, nullptr);
+    sqlite3_bind_text(stmt, 1, filename.c_str(), -1, SQLITE_TRANSIENT);
+
+    int version = 0;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        version = sqlite3_column_int(stmt, 0);
+    }
+    sqlite3_finalize(stmt);
+    return version;
+}

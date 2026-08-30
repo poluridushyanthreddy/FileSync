@@ -33,7 +33,7 @@ std::vector<char> read_file_bytes(const std::string& file_path) {
 }
 
 std::vector<FileChange> detect_changes(const std::string& folder_path,
-                                         std::map<std::string, std::string>& known_hashes) {
+                                         std::map<std::string, FileState>& known_state) {
     std::vector<FileChange> changes;
     auto files = list_files(folder_path);
 
@@ -44,23 +44,23 @@ std::vector<FileChange> detect_changes(const std::string& folder_path,
         auto bytes = read_file_bytes(folder_path + "/" + filename);
         std::string hash = compute_sha256(bytes);
 
-        auto it = known_hashes.find(filename);
+        auto it = known_state.find(filename);
 
-        if (it == known_hashes.end()) {
+        if (it == known_state.end()) {
             changes.push_back({filename, ChangeType::New});
-            known_hashes[filename] = hash;
-        } else if (it->second != hash) {
+            known_state[filename] = FileState{hash,0};// version unknown until server confirms
+        } else if (it->second.hash != hash) {
             changes.push_back({filename, ChangeType::Modified});
-            known_hashes[filename] = hash;
+            it->second.hash=hash;// keep existing version — it's the *base* version for this upload
         }
         // else unchanged — skip, no update needed
     }
 
     // Pass 2: detect deletions — known files no longer present on disk
-    for(auto it=known_hashes.begin();it!=known_hashes.end();){
+    for(auto it=known_state.begin();it!=known_state.end();){
         if(current_files.find(it->first)==current_files.end()){
             changes.push_back({it->first,ChangeType::Deleted});
-            it=known_hashes.erase(it);
+            it=known_state.erase(it);
         }
         else ++it;
     }

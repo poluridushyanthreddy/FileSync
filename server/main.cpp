@@ -71,6 +71,7 @@ void handle_client(tcp::socket socket,Database& db) {
         std::string filename = header["filename"];
         size_t file_size = header["size"];
         std::string file_hash=header["hash"];
+        int base_version = header.value("base_version", 0);
 
         std::cout << "Parsed -> filename: " << filename
                   << ", size: " << file_size << "\n";
@@ -96,6 +97,30 @@ void handle_client(tcp::socket socket,Database& db) {
             file_data.append(temp.data(), remaining);
         }
 
+        int current_version = db.get_current_version(filename);
+
+        if (base_version != 0 && base_version != current_version) {
+            std::cout << "CONFLICT detected for " << filename
+                       << " — client base_version=" << base_version
+                       << ", server current_version=" << current_version << "\n";
+
+            std::string conflict_name = filename + ".conflict";
+            std::ofstream conflict_file("../storage/" + conflict_name, std::ios::binary);
+            conflict_file.write(file_data.data(), file_data.size());
+            conflict_file.close();
+
+            std::cout << "Saved conflicting version as storage/" << conflict_name << "\n";
+
+            json ack;
+            ack["type"] = "ACK";
+            ack["status"] = "conflict";
+            ack["current_version"] = current_version;
+            ack["conflict_file"] = conflict_name;
+            std::string ack_str = ack.dump() + "\n";
+            boost::asio::write(socket, boost::asio::buffer(ack_str));
+            return;
+        }
+
         std::ofstream outfile("../storage/" + filename, std::ios::binary);
         outfile.write(file_data.data(), file_data.size());
         outfile.close();
@@ -103,10 +128,13 @@ void handle_client(tcp::socket socket,Database& db) {
         long modified_at = static_cast<long>(std::time(nullptr));
         int version = db.upsert_file(filename, file_hash, file_data.size(), modified_at);
 
+        int reported_version;
         if (version == -1) {
             std::cout << "Hash unchanged — no DB update needed.\n";
+            reported_version = db.get_current_version(filename); // unchanged, but tell client the real version
         } else {
             std::cout << "DB updated. New version: " << version << "\n";
+            reported_version = version;
         }
 
         std::cout << "Saved " << file_data.size() << " bytes to storage/"
@@ -115,7 +143,7 @@ void handle_client(tcp::socket socket,Database& db) {
         json ack;
         ack["type"] = "ACK";
         ack["status"] = "ok";
-        if(version!=-1) ack["version"]=version;
+        ack["version"]=reported_version;
         std::string ack_str = ack.dump() + "\n";
         boost::asio::write(socket, boost::asio::buffer(ack_str));
 

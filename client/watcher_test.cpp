@@ -5,11 +5,11 @@
 
 int main() {
     std::string folder = "../sync_folder";
-    std::map<std::string, std::string> known_hashes;
+    std::map<std::string, FileState> known_state;
 
     while (true) {
         std::cout << "--- Scanning " << folder << " ---\n";
-        auto changes = detect_changes(folder,known_hashes);
+        auto changes = detect_changes(folder,known_state);
 
         for (const auto& change : changes) {
             std::string type_str;

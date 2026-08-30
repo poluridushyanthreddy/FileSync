@@ -13,7 +13,12 @@ struct FileChange {
     ChangeType type;
 };
 
-// Compares current folder contents against known_hashes, updates known_hashes,
+struct FileState{
+    std::string hash;
+    int version=0;
+};
+
+// Compares current folder contents against known_state, updates known_state,
 // and returns the list of files that are new or modified (skips unchanged).
 std::vector<FileChange> detect_changes(const std::string& folder_path,
-         std::map<std::string, std::string>& known_hashes);
+         std::map<std::string, FileState>& known_state);

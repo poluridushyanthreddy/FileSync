@@ -14,6 +14,8 @@ class Database {
                 size_t size,long modified_at);
 
     void delete_file(const std::string& filename);
+
+    int get_current_version(const std::string& filename); // returns 0 if file not found
     
     private:
     sqlite3* db;

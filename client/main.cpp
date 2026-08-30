@@ -12,14 +12,14 @@
 using boost::asio::ip::tcp;
 using json=nlohmann::json;
 
-void upload_file(const std::string& folder_path, const std::string& filename) {
+int upload_file(const std::string& folder_path, const std::string& filename,int base_version) {
     try {
         std::string full_path = folder_path + "/" + filename;
 
         std::ifstream infile(full_path, std::ios::binary);
         if (!infile) {
             std::cerr << "Could not open file: " << full_path << "\n";
-            return;
+            return -1;
         }
         std::vector<char> file_data((std::istreambuf_iterator<char>(infile)),
                                       std::istreambuf_iterator<char>());
@@ -39,6 +39,7 @@ void upload_file(const std::string& folder_path, const std::string& filename) {
         header["filename"] = filename;
         header["size"] = file_data.size();
         header["hash"] = file_hash;
+        header["base_version"]=base_version;
 
         std::string header_str = header.dump() + "\n";
 
@@ -54,8 +55,21 @@ void upload_file(const std::string& folder_path, const std::string& filename) {
 
         std::cout << "Uploaded " << filename << " -> " << ack_line << "\n";
 
+        json ack = json::parse(ack_line);
+        std::string status = ack.value("status", "");
+
+        if (status == "conflict") {
+            std::cerr << "CONFLICT on " << filename << " — server is at version "
+                       << ack.value("current_version", -1) << "\n";
+            return -2; // sentinel: conflict
+        }
+
+        return ack.value("version", base_version); // if unchanged (no "version" key), keep old version
+
+
     } catch (std::exception& e) {
         std::cerr << "Exception uploading " << filename << ": " << e.what() << "\n";
+        return -1;
     }
 }
 
@@ -92,12 +106,12 @@ void send_deleted(const std::string& filename){
 int main(int argc, char* argv[])
 {
     std::string folder = (argc>1)?argv[1]:"../sync_folder";
-    std::map<std::string, std::string> known_hashes;
+    std::map<std::string, FileState> known_state;
 
     std::cout << "Watching " << folder << " for changes...\n";
 
     while (true) {
-        auto changes = detect_changes(folder, known_hashes);
+        auto changes = detect_changes(folder, known_state);
 
         for (const auto& change : changes) {
             if (change.type == ChangeType::Deleted) {
@@ -106,7 +120,13 @@ int main(int argc, char* argv[])
             } else {
                 std::string type_str = (change.type == ChangeType::New) ? "NEW" : "MODIFIED";
                 std::cout << type_str << ": " << change.filename << " -> uploading...\n";
-                upload_file(folder, change.filename);
+
+                int base_version = known_state[change.filename].version;
+                int result = upload_file(folder, change.filename, base_version);
+
+                if (result >= 0) {
+                    known_state[change.filename].version = result;
+                }
             }
         }
 
